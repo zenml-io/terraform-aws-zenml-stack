@@ -35,61 +35,55 @@ Thank you for your support! 🌟
 
 ## 🚀 Overview
 
-This Terraform configuration sets up the necessary Google Cloud Platform (GCP) infrastructure for a [ZenML](https://zenml.io) stack. It provisions various GCP services and resources, and configures a ZenML stack using these resources, allowing you to create an internal MLOps platform for your entire machine learning team.
+This Terraform module sets up the necessary AWS infrastructure for a [ZenML](https://zenml.io) stack. It provisions various AWS services and resources, and registers [a ZenML stack](https://docs.zenml.io/user-guide/production-guide/understand-stacks) using these resources with your ZenML server, allowing you to create an internal MLOps platform for your entire machine learning team.
 
 ## 🛠 Prerequisites
 
-- Terraform installed (version compatible with provider "~> 4.0")
-- Cloud provider account and project set up
-- [ZenML installed and configured](https://docs.zenml.io/getting-started/installation)
-- Relevant CLI tools for your chosen cloud provider installed and authenticated
+- Terraform installed (version >= 1.9")
+- AWS account set up
+- the AWS CLI installed and authenticated with your AWS account
+- [ZenML (version >= 0.62.0) installed and configured](https://docs.zenml.io/getting-started/installation). You'll need a Zenml server deployed in a remote setting where it can be accessed from AWS. You have the option to either [self-host a ZenML server](https://docs.zenml.io/getting-started/deploying-zenml) or [register for a free ZenML Pro account](https://cloud.zenml.io/signup).
 
-## 🏗 Resources Created
+## 🏗 AWS Resources Created
 
-The Terraform configurations in this repository create various cloud resources, which may include:
+The Terraform module in this repository creates the following resources in your AWS account:
 
-1. Required cloud APIs and services
-2. Storage solutions for artifacts
-3. Container registries
-4. Service accounts with necessary permissions
-5. Authentication keys or tokens
-
-Specific resources will depend on the chosen cloud provider and module.
+1. an S3 bucket
+2. an ECR repository
+3. an IAM user and an access key for it
+4. an IAM role with the minimum necessary permissions to access the S3 bucket, the ECR repository and the SageMaker service to build and push container images, store artifacts and run pipelines
 
 ## 🧩 ZenML Stack Components
 
-The configurations set up the following [ZenML stack components](https://docs.zenml.io/user-guide/production-guide/understand-stacks):
+The Terraform module automatically registers a fully functional AWS [ZenML stack](https://docs.zenml.io/user-guide/production-guide/understand-stacks) directly with your ZenML server. The ZenML stack is based on the provisioned AWS resources and is ready to be used to run machine learning pipelines.
 
-1. Cloud-specific Service Connector
-2. Container Registry
-3. Artifact Store
-4. Orchestrator
+The ZenML stack configuration is the following:
 
-Specific components may vary based on the cloud provider and chosen configuration.
+1. an S3 Artifact Store linked to the S3 bucket
+2. an ECR Container Registry linked to the ECR repository
+3. a SageMaker Orchestrator linked to the AWS account
+4. an AWS Service Connector configured with the IAM role credentials and used to authenticate all ZenML components with the AWS account
 
 ## 🚀 Usage
 
-1. Navigate to the directory for your chosen cloud provider
-2. Set up your Terraform variables (create a `terraform.tfvars` file or use environment variables)
-3. Initialize Terraform: `terraform init`
-4. Plan the Terraform execution: `terraform plan`
-5. Apply the Terraform configuration: `terraform apply`
-
-After successful application, your ZenML stack will be set up and ready to use.
-
-## 🧹 Cleanup
-
-To destroy the created resources and remove the ZenML stack configuration:
+To use this module, aside from the prerequisites mentioned above, you also need to create [a ZenML Service Account API key](https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account) for your ZenML Server. You can do this by running the following command in a terminal where you have the ZenML CLI installed:
 
 ```bash
-terraform destroy
+zenml service-account create <service-account-name>
 ```
 
-## 📝 Notes
+### Basic Configuration
 
-The ZenML stack setup and cleanup processes are logged to zenml_stack_setup.log and zenml_stack_cleanup.log respectively.
-Ensure you have the necessary permissions in your GCP project to create these resources.
-Always review the changes before applying them, especially in a production environment.
+```hcl
+module "zenml_stack" {
+  source  = "waveaccounting/chatbot-slack-configuration/aws"
+  version = "1.1.0"
+
+  region = "us-west-2"
+  zenml_server_url = "https://your-zenml-server-url.com"
+  zenml_api_key = "ZENKEY_1234567890..."
+}
+```
 
 ## 🎓 Learning Resources
 
