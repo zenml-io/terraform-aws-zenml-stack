@@ -8,20 +8,7 @@
     <img alt="ZenML Logo" src="https://raw.githubusercontent.com/zenml-io/zenml/main/docs/book/.gitbook/assets/header.png" alt="ZenML Logo">
   </a>
   <br />
-
-  [![PyPi][pypi-shield]][pypi-url]
-  [![PyPi][pypiversion-shield]][pypi-url]
-  [![PyPi][downloads-shield]][downloads-url]
-  [![License][license-shield]][license-url]
 </div>
-
-[pypi-shield]: https://img.shields.io/pypi/pyversions/zenml?color=281158
-[pypi-url]: https://pypi.org/project/zenml/
-[pypiversion-shield]: https://img.shields.io/pypi/v/zenml?color=361776
-[downloads-shield]: https://img.shields.io/pypi/dm/zenml?color=431D93
-[downloads-url]: https://pypi.org/project/zenml/
-[license-shield]: https://img.shields.io/github/license/zenml-io/zenml?color=9565F6
-[license-url]: https://github.com/zenml-io/zenml/blob/main/LICENSE
 
 ---
 
@@ -76,8 +63,8 @@ zenml service-account create <service-account-name>
 
 ```hcl
 module "zenml_stack" {
-  source  = "waveaccounting/chatbot-slack-configuration/aws"
-  version = "1.1.0"
+  source  = "zenml-io/zenml-stack/aws"
+  version = "1.0.0"
 
   region = "us-west-2"
   zenml_server_url = "https://your-zenml-server-url.com"
