@@ -64,11 +64,16 @@ zenml service-account create <service-account-name>
 ```hcl
 module "zenml_stack" {
   source  = "zenml-io/zenml-stack/aws"
-  version = "1.0.0"
 
   region = "us-west-2"
   zenml_server_url = "https://your-zenml-server-url.com"
   zenml_api_key = "ZENKEY_1234567890..."
+}
+output "zenml_stack_id" {
+  value = module.zenml_stack_id
+}
+output "zenml_stack_name" {
+  value = module.zenml_stack_name
 }
 ```
 

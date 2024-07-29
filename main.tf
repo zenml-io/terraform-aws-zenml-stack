@@ -212,11 +212,11 @@ resource "restapi_object" "zenml_stack" {
   create_path = "/api/v1/workspaces/default/full-stack"
   data = <<EOF
 {
-  "name": "terraform-aws-stack-${random_id.resource_name_suffix.hex}",
+  "name": "${var.zenml_stack_name == "" ? "terraform-aws-${random_id.resource_name_suffix.hex}" : var.zenml_stack_name}",
   "description": "Deployed with the ZenML AWS Stack Terraform module in the '${data.aws_caller_identity.current.account_id}' account and '${var.region}' region.",
   "labels": {
     "zenml:provider": "aws",
-    "zenml:deployment": "terraform"
+    "zenml:deployment": "${var.zenml_stack_deployment}"
   },
   "service_connectors": [
     {
