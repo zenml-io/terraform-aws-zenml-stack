@@ -272,4 +272,18 @@ EOF
       aws_iam_role.sagemaker_runtime_role
     ]
   }
+
+  # Depends on all other resources
+  depends_on = [
+    aws_s3_bucket.artifact_store,
+    aws_ecr_repository.container_registry,
+    aws_iam_user.iam_user,
+    aws_iam_user_policy.assume_role_policy,
+    aws_iam_access_key.iam_user_access_key,
+    aws_iam_role.stack_access_role,
+    aws_iam_role.sagemaker_runtime_role,
+    aws_iam_role_policy.s3_policy,
+    aws_iam_role_policy.ecr_policy,
+    aws_iam_role_policy.sagemaker_policy
+  ]
 }
