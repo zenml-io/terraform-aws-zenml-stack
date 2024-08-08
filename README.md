@@ -39,13 +39,23 @@ The Terraform module in this repository creates the following resources in your 
 
 1. an S3 bucket
 2. an ECR repository
-3. an IAM user and an access key for it
-4. an IAM role with the minimum necessary permissions to access the S3 bucket, the ECR repository and the SageMaker service to build and push container images, store artifacts and run pipelines
+3. an IAM role with the minimum necessary permissions to access the S3 bucket and the ECR repository to build and push container images, store artifacts and run pipelines with SageMaker or SkyPilot. 
+4. depending on the target ZenML Server capabilities, different authentication methods are used:
+  * for a self-hosted ZenML server, an IAM user is created and a secret key is configured for it and shared with the ZenML server
+  * for a ZenML Pro account, direct inter-account AWS role assumption is used to authenticate implicitly with the ZenML server, so that no sensitive credentials are shared with the ZenML server. There's only one exception: when the SkyPilot orchestrator is used, this authentication method is not supported, so the IAM user and secret key are used instead.
 
 To use the ZenML stack, you will need to install the required integrations:
 
+* for SageMaker:
+
 ```shell
 zenml integration install aws s3
+```
+
+* for SkyPilot:
+
+```shell
+zenml integration install aws s3 skypilot_aws
 ```
 
 ## 🧩 ZenML Stack Components
@@ -56,8 +66,12 @@ The ZenML stack configuration is the following:
 
 1. an S3 Artifact Store linked to the S3 bucket
 2. an ECR Container Registry linked to the ECR repository
-3. a SageMaker Orchestrator linked to the AWS account
-4. an AWS Service Connector configured with the IAM role credentials and used to authenticate all ZenML components with the AWS account
+3. depending on the `orchestrator` input variable:
+  * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
+  * a SageMaker Orchestrator linked to the AWS account, if `orchestrator` is set to `sagemaker` (default)
+  * a SkyPilot Orchestrator linked to the AWS account, if `orchestrator` is set to `skypilot`
+4. a SageMaker Step Operator linked to the AWS account
+5. an AWS Service Connector configured with the IAM role credentials and used to authenticate all ZenML components with the AWS account
 
 ## 🚀 Usage
 
@@ -74,6 +88,7 @@ module "zenml_stack" {
   source  = "zenml-io/zenml-stack/aws"
 
   region = "us-west-2"
+  orchestrator = "sagemaker" # or "skypilot" or "local"
   zenml_server_url = "https://your-zenml-server-url.com"
   zenml_api_key = "ZENKEY_1234567890..."
 }
