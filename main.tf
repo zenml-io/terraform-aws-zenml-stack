@@ -396,7 +396,7 @@ locals {
       "flavor": "sagemaker",
       "service_connector_index": 0,
       "configuration": {
-        "location": "${var.region}",
+        "region": "${var.region}",
         "execution_role": "${aws_iam_role.sagemaker_runtime_role.arn}"
       }
     }
