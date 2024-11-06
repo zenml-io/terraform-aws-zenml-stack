@@ -64,14 +64,13 @@ The Terraform module automatically registers a fully functional AWS [ZenML stack
 
 The ZenML stack configuration is the following:
 
-1. an S3 Artifact Store linked to the S3 bucket
-2. an ECR Container Registry linked to the ECR repository
+1. an S3 Artifact Store linked to the S3 bucket via an AWS Service Connector configured with the proper IAM role credentials
+2. an ECR Container Registry linked to the ECR repository via an AWS Service Connector configured with the proper IAM role credentials
 3. depending on the `orchestrator` input variable:
   * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
-  * a SageMaker Orchestrator linked to the AWS account, if `orchestrator` is set to `sagemaker` (default)
-  * a SkyPilot Orchestrator linked to the AWS account, if `orchestrator` is set to `skypilot`
-4. a SageMaker Step Operator linked to the AWS account
-5. an AWS Service Connector configured with the IAM role credentials and used to authenticate all ZenML components with the AWS account
+  * a SageMaker Orchestrator linked to the AWS account via an AWS Service Connector configured with the proper IAM role credentials, if `orchestrator` is set to `sagemaker` (default)
+  * a SkyPilot Orchestrator linked to the AWS account via an AWS Service Connector configured with the proper IAM role credentials, if `orchestrator` is set to `skypilot`
+4. a SageMaker Step Operator linked to the AWS account via an AWS Service Connector configured with the proper IAM role credentials
 
 ## 🚀 Usage
 
@@ -84,19 +83,28 @@ zenml service-account create <service-account-name>
 ### Basic Configuration
 
 ```hcl
+provider "aws" {
+    region = "eu-central-1"
+}
+
+provider "zenml" {
+    server_url = "https://your-zenml-server-url.com"
+    api_key = "ZENKEY_eyJpZCI6..."
+}
+
 module "zenml_stack" {
   source  = "zenml-io/zenml-stack/aws"
 
-  region = "us-west-2"
   orchestrator = "sagemaker" # or "skypilot" or "local"
-  zenml_server_url = "https://your-zenml-server-url.com"
-  zenml_api_key = "ZENKEY_1234567890..."
+  stack_name = "my-zenml-stack"
 }
+
 output "zenml_stack_id" {
-  value = module.zenml_stack.zenml_stack_id
+  value = module.zenml_stack.zenml_stack.id
 }
+
 output "zenml_stack_name" {
-  value = module.zenml_stack.zenml_stack_name
+  value = module.zenml_stack.zenml_stack.name
 }
 ```
 

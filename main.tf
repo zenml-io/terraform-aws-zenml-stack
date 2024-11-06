@@ -4,50 +4,19 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 4.0"
     }
-    restapi = {
-      source  = "Mastercard/restapi"
-      version = "~> 1.19"
+    zenml = {
+      source = "zenml-io/zenml"
     }
   }
 }
 
-provider "aws" {
-  region = var.region
-}
-
-
-data "http" "zenml_login" {
-  count = var.zenml_api_key != "" ? 1 : 0
-  url = "${var.zenml_server_url}/api/v1/login"
-
-  method = "POST"
-
-  request_body = "password=${urlencode(var.zenml_api_key)}"
-
-  request_headers = {
-    Content-Type = "application/x-www-form-urlencoded"
-  }
-}
-
-provider "restapi" {
-  alias                = "zenml_api"
-  uri                  = var.zenml_server_url
-  write_returns_object = true
-
-  headers = {
-    Authorization = "Bearer ${var.zenml_api_key == "" ? var.zenml_api_token : jsondecode(data.http.zenml_login[0].response_body).access_token}"
-  }
-}
-
 data "aws_caller_identity" "current" {}
-
-data "http" "zenml_info" {
-  url = "${var.zenml_server_url}/api/v1/info"
-}
+data "aws_region" "current" {}
+data "zenml_server" "zenml_info" {}
 
 locals {
-  zenml_pro_tenant_id = try(jsondecode(data.http.zenml_info.response_body).metadata["tenant_id"], null)
-  zenml_version = jsondecode(data.http.zenml_info.response_body).version
+  zenml_pro_tenant_id = try(data.zenml_server.zenml_info.metadata["tenant_id"], null)
+  zenml_version = data.zenml_server.zenml_info.version
   zenml_pro_tenant_iam_role_name = local.zenml_pro_tenant_id != null ? "zenml-${local.zenml_pro_tenant_id}" : ""
   zenml_pro_tenant_iam_role = local.zenml_pro_tenant_id != null ? "arn:aws:iam::${var.zenml_pro_aws_account}:role/${local.zenml_pro_tenant_iam_role_name}" : ""
   # Use inter-AWS-account implicit authentication when connected to a ZenML Pro tenant and
@@ -103,20 +72,37 @@ resource "aws_iam_access_key" "iam_user_access_key" {
   user = aws_iam_user.iam_user[0].name
 }
 
+data "aws_iam_policy_document" "assume_role_policy" {
+  statement {
+    effect = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type = "AWS"
+      identifiers = [local.use_implicit_auth ? local.zenml_pro_tenant_iam_role : aws_iam_user.iam_user[0].arn]
+    }
+  }
+}
+
 resource "aws_iam_role" "stack_access_role" {
   name               = "zenml-${random_id.resource_name_suffix.hex}"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          AWS = local.use_implicit_auth ? local.zenml_pro_tenant_iam_role : aws_iam_user.iam_user[0].arn
-        }
-        Action = "sts:AssumeRole"
-      }
+  assume_role_policy = data.aws_iam_policy_document.assume_role_policy.json
+}
+
+# The IAM role takes a while to propagate, so we add a sleep resource to ensure
+# that the role is available before we try to use it.
+resource "time_sleep" "wait_for_role" {
+  create_duration = "10s"
+
+  depends_on = [
+    aws_iam_role.stack_access_role,
+  ]
+
+  lifecycle {
+    replace_triggered_by = [
+      aws_iam_role.stack_access_role
     ]
-  })
+  }
 }
 
 resource "aws_iam_role_policy" "s3_policy" {
@@ -176,7 +162,7 @@ resource "aws_iam_role_policy" "ecr_policy" {
           "ecr:DescribeRepositories",
           "ecr:ListRepositories"
         ]
-        Resource = "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/*"
+        Resource = "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/*"
       }
     ]
   })
@@ -382,6 +368,109 @@ resource "aws_iam_role_policy" "sagemaker_runtime_policy" {
   })
 }
 
+locals {
+  # The service connector configuration is different depending on whether we are
+  # using the ZenML Pro tenant or not.
+  service_connector_config = {
+    iam_role = {
+      region = data.aws_region.current.name
+      role_arn = aws_iam_role.stack_access_role.arn
+      aws_access_key_id = local.use_implicit_auth ? "": aws_iam_access_key.iam_user_access_key[0].id
+      aws_secret_access_key = local.use_implicit_auth ? "": aws_iam_access_key.iam_user_access_key[0].secret
+    }
+    implicit = {
+      region = "${data.aws_region.current.name}"
+      role_arn = "${aws_iam_role.stack_access_role.arn}"
+    }
+  }
+}
+
+# Artifact Store Component
+
+resource "zenml_service_connector" "s3" {
+  name           = "${var.zenml_stack_name == "" ? "terraform-s3-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-s3"}"
+  type           = "aws"
+  auth_method    = local.use_implicit_auth ? "implicit" : "iam-role"
+  resource_type  = "s3-bucket"
+  resource_id    = aws_s3_bucket.artifact_store.bucket
+
+  configuration = local.service_connector_config[local.use_implicit_auth ? "implicit" : "iam_role"]
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+
+  depends_on = [
+    time_sleep.wait_for_role,
+    aws_iam_user.iam_user,
+    aws_iam_role.stack_access_role,
+    aws_iam_user_policy.assume_role_policy,
+    aws_iam_role_policy.s3_policy,
+  ]
+}
+
+resource "zenml_stack_component" "artifact_store" {
+  name      = "${var.zenml_stack_name == "" ? "terraform-s3-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-s3"}"
+  type      = "artifact_store"
+  flavor    = "s3"
+
+  configuration = {
+    path = "s3://${aws_s3_bucket.artifact_store.bucket}"
+  }
+
+  connector_id = zenml_service_connector.s3.id
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+}
+
+# Container Registry Component
+
+resource "zenml_service_connector" "ecr" {
+  name           = "${var.zenml_stack_name == "" ? "terraform-ecr-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-ecr"}"
+  type           = "aws"
+  auth_method    = local.use_implicit_auth ? "implicit" : "iam-role"
+  resource_type  = "docker-registry"
+  resource_id    = aws_ecr_repository.container_registry.repository_url
+
+  configuration = local.service_connector_config[local.use_implicit_auth ? "implicit" : "iam_role"]
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+
+  depends_on = [
+    time_sleep.wait_for_role,
+    aws_iam_user.iam_user,
+    aws_iam_role.stack_access_role,
+    aws_iam_user_policy.assume_role_policy,
+    aws_iam_role_policy.ecr_policy,
+  ]
+}
+
+resource "zenml_stack_component" "container_registry" {
+  name      = "${var.zenml_stack_name == "" ? "terraform-ecr-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-ecr"}"
+  type      = "container_registry"
+  flavor    = "aws"
+
+  configuration = {
+    uri = regex("^([^/]+)/?", aws_ecr_repository.container_registry.repository_url)[0]
+    default_repository = "${aws_ecr_repository.container_registry.name}"
+  }
+
+  connector_id = zenml_service_connector.ecr.id
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+}
+
+# Orchestrator
 
 locals {
   # The orchestrator configuration is different depending on the orchestrator
@@ -389,141 +478,146 @@ locals {
   # configuration to use and construct a local variable `orchestrator_config` to
   # hold the configuration.
   orchestrator_config = {
-    local = {
-      "flavor": "local",
-    }
+    local = {}
     sagemaker = {
-      "flavor": "sagemaker",
-      "service_connector_index": 0,
-      "configuration": {
-        "region": "${var.region}",
-        "execution_role": "${aws_iam_role.sagemaker_runtime_role.arn}"
-      }
+      region = "${data.aws_region.current.name}"
+      execution_role = "${aws_iam_role.sagemaker_runtime_role.arn}"
+      output_data_s3_uri = "s3://${aws_s3_bucket.artifact_store.bucket}/sagemaker"
     }
     skypilot = {
-      "flavor": "vm_aws",
-      "service_connector_index": 0,
-      "configuration": {
-        "region": "${var.region}"
-      }
+      region = "${data.aws_region.current.name}"
     }
   }
-  artifact_store_config = {
-    "flavor": "s3",
-    "service_connector_index": 0,
-    "configuration": {
-      "path": "s3://${aws_s3_bucket.artifact_store.bucket}"
-    }
-  }
-  container_registry_config = {
-    "flavor": "aws",
-    "service_connector_index": 0,
-    "configuration": {
-      "uri": "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com",
-      "default_repository": "${aws_ecr_repository.container_registry.name}"
-    }
-  }
-  step_operator_config = {
-    "flavor": "sagemaker",
-    "service_connector_index": 0,
-    "configuration": {
-      "role": "${aws_iam_role.sagemaker_runtime_role.arn}",
-      "bucket": "${aws_s3_bucket.artifact_store.bucket}"
-    }
-  }
-  image_builder_config = {
-    "flavor": "local"
-  }
-
-  # The service connector configuration is different depending on whether we are
-  # using the ZenML Pro tenant or not. We use the `use_implicit_auth` local
-  # variable to determine which configuration to use and construct a local
-  # variable `service_connector_config` to hold the configuration.
-  service_connector_config = local.use_implicit_auth ? jsonencode({
-    "type": "aws",
-    "auth_method": "implicit",
-    "configuration": {
-      "region": "${var.region}",
-      "role_arn": "${aws_iam_role.stack_access_role.arn}"
-    }
-  }) : jsonencode({
-    "type": "aws",
-    "auth_method": "iam-role",
-    "configuration": {
-      "aws_access_key_id": "${aws_iam_access_key.iam_user_access_key[0].id}",
-      "aws_secret_access_key": "${aws_iam_access_key.iam_user_access_key[0].secret}",
-      "region": "${var.region}",
-      "role_arn": "${aws_iam_role.stack_access_role.arn}"
-    }
-  })
-
-  # This is yet another complication that arises from the fact that before
-  # ZenML version 0.65.0, a separate full-stack endpoint was used to register
-  # deployed stacks that used a different format for the stack components.
-  orchestrator = local.use_full_stack_endpoint ? jsonencode(local.orchestrator_config[var.orchestrator]) : jsonencode([local.orchestrator_config[var.orchestrator]])
-  artifact_store = local.use_full_stack_endpoint ? jsonencode(local.artifact_store_config) : jsonencode([local.artifact_store_config])
-  container_registry = local.use_full_stack_endpoint ? jsonencode(local.container_registry_config) : jsonencode([local.container_registry_config])
-  step_operator = local.use_full_stack_endpoint ? jsonencode(local.step_operator_config) : jsonencode([local.step_operator_config])
-  image_builder = local.use_full_stack_endpoint ? jsonencode(local.image_builder_config) : jsonencode([local.image_builder_config])
 }
 
-resource "terraform_data" "zenml_stack_deps" {
-  input = [
-    var.orchestrator,
-    random_id.resource_name_suffix,
-    var.zenml_stack_name,
-    var.region,
-    var.zenml_server_url,
-    var.zenml_pro_aws_account,
-  ]
-}
+resource "zenml_service_connector" "aws" {
+  name           = "${var.zenml_stack_name == "" ? "terraform-aws-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-aws"}"
+  type           = "aws"
+  auth_method    = local.use_implicit_auth ? "implicit" : "iam-role"
+  resource_type  = "aws-generic"
 
-resource "restapi_object" "zenml_stack" {
-  provider = restapi.zenml_api
-  path = "/api/v1/stacks"
-  create_path = local.use_full_stack_endpoint ? "/api/v1/workspaces/default/full-stack": "/api/v1/workspaces/default/stacks"
-  data = <<EOF
-{
-  "name": "${var.zenml_stack_name == "" ? "terraform-aws-${random_id.resource_name_suffix.hex}" : var.zenml_stack_name}",
-  "description": "Deployed with the ZenML AWS Stack Terraform module in the '${data.aws_caller_identity.current.account_id}' account and '${var.region}' region.",
-  "labels": {
-    "zenml:provider": "aws",
-    "zenml:deployment": "${var.zenml_stack_deployment}"
-  },
-  "service_connectors": [
-    ${local.service_connector_config}
-  ],
-  "components": {
-    "artifact_store": ${local.artifact_store},
-    "container_registry": ${local.container_registry},
-    "orchestrator": ${local.orchestrator},
-    "step_operator": ${local.step_operator},
-    "image_builder": ${local.image_builder}
-  }
-}
-EOF
-  lifecycle {
-    # Given that we don't yet support updating a full stack, we force a new
-    # resource to be created whenever any of the inputs change.
-    replace_triggered_by = [
-      terraform_data.zenml_stack_deps
-    ]
+  configuration = local.service_connector_config[local.use_implicit_auth ? "implicit" : "iam_role"]
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
   }
 
-  # Depends on all other resources
   depends_on = [
-    aws_s3_bucket.artifact_store,
-    aws_ecr_repository.container_registry,
-    aws_iam_user.iam_user[0],
-    aws_iam_user_policy.assume_role_policy[0],
-    aws_iam_access_key.iam_user_access_key,
+    time_sleep.wait_for_role,
+    aws_iam_user.iam_user,
     aws_iam_role.stack_access_role,
-    aws_iam_role.sagemaker_runtime_role,    
+    aws_iam_role.sagemaker_runtime_role,
+    aws_iam_user_policy.assume_role_policy,
     aws_iam_role_policy.s3_policy,
     aws_iam_role_policy.ecr_policy,
-    aws_iam_role_policy.skypilot_policy[0],
     aws_iam_role_policy.sagemaker_training_jobs_policy,
-    aws_iam_role_policy.sagemaker_pipelines_policy[0],
-    aws_iam_role_policy.sagemaker_runtime_policy,
+    aws_iam_role_policy.sagemaker_pipelines_policy,
+    aws_iam_role_policy.skypilot_policy,
+    aws_iam_role_policy.sagemaker_runtime_policy
   ]
+}
+
+resource "zenml_stack_component" "orchestrator" {
+  name      = "${var.zenml_stack_name == "" ? "terraform-${var.orchestrator}-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-${var.orchestrator}"}"
+  type      = "orchestrator"
+  flavor    = var.orchestrator == "skypilot" ? "vm_aws" : var.orchestrator
+
+  configuration = local.orchestrator_config[var.orchestrator]
+
+  connector_id = zenml_service_connector.aws.id
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+}
+
+
+# Step Operator
+resource "zenml_stack_component" "step_operator" {
+  name      = "${var.zenml_stack_name == "" ? "terraform-sagemaker-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-sagemaker"}"
+  type      = "step_operator"
+  flavor    = "sagemaker"
+
+  configuration = {
+    role = "${aws_iam_role.sagemaker_runtime_role.arn}",
+    bucket = "${aws_s3_bucket.artifact_store.bucket}"
+  }
+
+  connector_id = zenml_service_connector.aws.id
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+}
+
+# Image Builder
+resource "zenml_stack_component" "image_builder" {
+  name      = "${var.zenml_stack_name == "" ? "terraform-local-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-local"}"
+  type      = "image_builder"
+  flavor    = "local"
+
+  configuration = {
+  }
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+}
+
+# Complete Stack
+resource "zenml_stack" "stack" {
+  name = "${var.zenml_stack_name == "" ? "terraform-aws-${random_id.resource_name_suffix.hex}" : var.zenml_stack_name}"
+
+  components = {
+    artifact_store     = zenml_stack_component.artifact_store.id
+    container_registry = zenml_stack_component.container_registry.id
+    orchestrator      = zenml_stack_component.orchestrator.id
+    step_operator      = zenml_stack_component.step_operator.id
+    image_builder      = zenml_stack_component.image_builder.id
+  }
+
+  labels = {
+    "zenml:provider" = "aws"
+    "zenml:deployment" = "${var.zenml_stack_deployment}"
+  }
+}
+
+data "zenml_service_connector" "s3" {
+  id = zenml_service_connector.s3.id
+}
+
+data "zenml_service_connector" "ecr" {
+  id = zenml_service_connector.ecr.id
+}
+
+data "zenml_service_connector" "aws" {
+  id = zenml_service_connector.aws.id
+}
+
+data "zenml_stack_component" "artifact_store" {
+  id = zenml_stack_component.artifact_store.id
+}
+
+data "zenml_stack_component" "container_registry" {
+  id = zenml_stack_component.container_registry.id
+}
+
+data "zenml_stack_component" "orchestrator" {
+  id = zenml_stack_component.orchestrator.id
+}
+
+data "zenml_stack_component" "step_operator" {
+  id = zenml_stack_component.step_operator.id
+}
+
+data "zenml_stack_component" "image_builder" {
+  id = zenml_stack_component.image_builder.id
+}
+
+data "zenml_stack" "stack" {
+  id = zenml_stack.stack.id
 }
