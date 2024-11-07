@@ -525,7 +525,7 @@ resource "zenml_stack_component" "orchestrator" {
 
   configuration = local.orchestrator_config[var.orchestrator]
 
-  connector_id = zenml_service_connector.aws.id
+  connector_id = var.orchestrator == "local" ? "" : zenml_service_connector.aws.id
 
   labels = {
     "zenml:provider" = "aws"
