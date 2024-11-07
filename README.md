@@ -53,6 +53,20 @@ The Terraform module in this repository creates the following resources in your 
   * for a self-hosted ZenML server, an IAM user is created and a secret key is configured for it and shared with the ZenML server
   * for a ZenML Pro account, direct inter-account AWS role assumption is used to authenticate implicitly with the ZenML server, so that no sensitive credentials are shared with the ZenML server. There's only one exception: when the SkyPilot orchestrator is used, this authentication method is not supported, so the IAM user and secret key are used instead.
 
+## 🧩 ZenML Stack Components
+
+The Terraform module automatically registers a fully functional AWS [ZenML stack](https://docs.zenml.io/user-guide/production-guide/understand-stacks) directly with your ZenML server. The ZenML stack is based on the provisioned AWS resources and is ready to be used to run machine learning pipelines.
+
+The ZenML stack configuration is the following:
+
+1. an S3 Artifact Store linked to the S3 bucket via an AWS Service Connector configured with IAM role credentials
+2. an ECR Container Registry linked to the ECR repository via an AWS Service Connector configured with IAM role credentials
+3. depending on the `orchestrator` input variable:
+  * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
+  * if `orchestrator` is set to `sagemaker` (default): a SageMaker Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
+  * if `orchestrator` is set to `skypilot`: a SkyPilot Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
+4. a SageMaker Step Operator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
+
 To use the ZenML stack, you will need to install the required integrations:
 
 * for SageMaker:
@@ -67,19 +81,6 @@ zenml integration install aws s3
 zenml integration install aws s3 skypilot_aws
 ```
 
-## 🧩 ZenML Stack Components
-
-The Terraform module automatically registers a fully functional AWS [ZenML stack](https://docs.zenml.io/user-guide/production-guide/understand-stacks) directly with your ZenML server. The ZenML stack is based on the provisioned AWS resources and is ready to be used to run machine learning pipelines.
-
-The ZenML stack configuration is the following:
-
-1. an S3 Artifact Store linked to the S3 bucket via an AWS Service Connector configured with IAM role credentials
-2. an ECR Container Registry linked to the ECR repository via an AWS Service Connector configured with the proper IAM role credentials
-3. depending on the `orchestrator` input variable:
-  * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
-  * if `orchestrator` is set to `sagemaker` (default): a SageMaker Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
-  * if `orchestrator` is set to `skypilot`: a SkyPilot Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
-4. a SageMaker Step Operator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
 
 ## 🚀 Usage
 
