@@ -98,7 +98,8 @@ resource "aws_iam_role_policy" "s3_policy" {
           "s3:ListBucket",
           "s3:GetObject",
           "s3:PutObject",
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          "s3:GetBucketVersioning"
         ]
         Resource = [
           aws_s3_bucket.artifact_store.arn,
