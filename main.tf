@@ -459,7 +459,6 @@ locals {
   orchestrator_config = {
     local = {}
     sagemaker = {
-      region = "${data.aws_region.current.name}"
       execution_role = "${aws_iam_role.sagemaker_runtime_role.arn}"
       output_data_s3_uri = "s3://${aws_s3_bucket.artifact_store.bucket}/sagemaker"
     }
