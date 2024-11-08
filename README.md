@@ -111,7 +111,7 @@ module "zenml_stack" {
   source  = "zenml-io/zenml-stack/aws"
 
   orchestrator = "sagemaker" # or "skypilot" or "local"
-  stack_name = "my-zenml-stack"
+  zenml_stack_name = "my-zenml-stack"
 }
 
 output "zenml_stack_id" {
