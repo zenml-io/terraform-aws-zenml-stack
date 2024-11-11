@@ -28,10 +28,19 @@ This Terraform module sets up the necessary AWS infrastructure for a [ZenML](htt
 
 - Terraform installed (version >= 1.9")
 - AWS account set up
-- To authenticate with AWS, you need to have [the AWS CLI](https://aws.amazon.com/cli/)
-installed on your machine and you need to have run `aws configure` to set up your
-credentials.
-- [ZenML (version >= 0.62.0) installed and configured](https://docs.zenml.io/getting-started/installation). You'll need a Zenml server deployed in a remote setting where it can be accessed from AWS. You have the option to either [self-host a ZenML server](https://docs.zenml.io/getting-started/deploying-zenml) or [register for a free ZenML Pro account](https://cloud.zenml.io/signup).
+- To authenticate with AWS, you need to have [the AWS CLI](https://aws.amazon.com/cli/) installed on your machine and you need to have run `aws configure` to set up your credentials.
+- You'll need a Zenml server (version >= 0.62.0) deployed in a remote setting where it can be accessed from AWS. You have the option to either [self-host a ZenML server](https://docs.zenml.io/getting-started/deploying-zenml) or [register for a free ZenML Pro account](https://cloud.zenml.io/signup). Once you have a ZenML Server set up, you also need to create [a ZenML Service Account API key](https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account) for your ZenML Server. You can do this by running the following command in a terminal where you have the ZenML CLI installed:
+
+```bash
+zenml service-account create <service-account-name>
+```
+
+- This Terraform module uses [the ZenML Terraform provider](https://registry.terraform.io/providers/zenml-io/zenml/latest/docs). It is recommended to use environment variables to configure the ZenML Terraform provider with the API key and server URL. You can set the environment variables as follows:
+
+```bash
+export ZENML_SERVER_URL="https://your-zenml-server.com"
+export ZENML_API_KEY="your-api-key"
+```
 
 ## 🏗 AWS Resources Created
 
@@ -43,6 +52,20 @@ The Terraform module in this repository creates the following resources in your 
 4. depending on the target ZenML Server capabilities, different authentication methods are used:
   * for a self-hosted ZenML server, an IAM user is created and a secret key is configured for it and shared with the ZenML server
   * for a ZenML Pro account, direct inter-account AWS role assumption is used to authenticate implicitly with the ZenML server, so that no sensitive credentials are shared with the ZenML server. There's only one exception: when the SkyPilot orchestrator is used, this authentication method is not supported, so the IAM user and secret key are used instead.
+
+## 🧩 ZenML Stack Components
+
+The Terraform module automatically registers a fully functional AWS [ZenML stack](https://docs.zenml.io/user-guide/production-guide/understand-stacks) directly with your ZenML server. The ZenML stack is based on the provisioned AWS resources and is ready to be used to run machine learning pipelines.
+
+The ZenML stack configuration is the following:
+
+1. an S3 Artifact Store linked to the S3 bucket via an AWS Service Connector configured with IAM role credentials
+2. an ECR Container Registry linked to the ECR repository via an AWS Service Connector configured with IAM role credentials
+3. depending on the `orchestrator` input variable:
+  * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
+  * if `orchestrator` is set to `sagemaker` (default): a SageMaker Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
+  * if `orchestrator` is set to `skypilot`: a SkyPilot Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
+4. a SageMaker Step Operator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
 
 To use the ZenML stack, you will need to install the required integrations:
 
@@ -58,45 +81,45 @@ zenml integration install aws s3
 zenml integration install aws s3 skypilot_aws
 ```
 
-## 🧩 ZenML Stack Components
-
-The Terraform module automatically registers a fully functional AWS [ZenML stack](https://docs.zenml.io/user-guide/production-guide/understand-stacks) directly with your ZenML server. The ZenML stack is based on the provisioned AWS resources and is ready to be used to run machine learning pipelines.
-
-The ZenML stack configuration is the following:
-
-1. an S3 Artifact Store linked to the S3 bucket
-2. an ECR Container Registry linked to the ECR repository
-3. depending on the `orchestrator` input variable:
-  * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
-  * a SageMaker Orchestrator linked to the AWS account, if `orchestrator` is set to `sagemaker` (default)
-  * a SkyPilot Orchestrator linked to the AWS account, if `orchestrator` is set to `skypilot`
-4. a SageMaker Step Operator linked to the AWS account
-5. an AWS Service Connector configured with the IAM role credentials and used to authenticate all ZenML components with the AWS account
 
 ## 🚀 Usage
-
-To use this module, aside from the prerequisites mentioned above, you also need to create [a ZenML Service Account API key](https://docs.zenml.io/how-to/connecting-to-zenml/connect-with-a-service-account) for your ZenML Server. You can do this by running the following command in a terminal where you have the ZenML CLI installed:
-
-```bash
-zenml service-account create <service-account-name>
-```
 
 ### Basic Configuration
 
 ```hcl
+terraform {
+    required_providers {
+        aws = {
+            source  = "hashicorp/aws"
+        }
+        zenml = {
+            source = "zenml-io/zenml"
+        }
+    }
+}
+
+provider "aws" {
+    region = "eu-central-1"
+}
+
+provider "zenml" {
+    # server_url = <taken from the ZENML_SERVER_URL environment variable if not set here>
+    # api_key = <taken from the ZENML_API_KEY environment variable if not set here>
+}
+
 module "zenml_stack" {
   source  = "zenml-io/zenml-stack/aws"
 
-  region = "us-west-2"
   orchestrator = "sagemaker" # or "skypilot" or "local"
-  zenml_server_url = "https://your-zenml-server-url.com"
-  zenml_api_key = "ZENKEY_1234567890..."
+  zenml_stack_name = "my-zenml-stack"
 }
+
 output "zenml_stack_id" {
-  value = module.zenml_stack.zenml_stack_id
+  value = module.zenml_stack.zenml_stack.id
 }
+
 output "zenml_stack_name" {
-  value = module.zenml_stack.zenml_stack_name
+  value = module.zenml_stack.zenml_stack.name
 }
 ```
 
