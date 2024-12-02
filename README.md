@@ -48,8 +48,11 @@ The Terraform module in this repository creates the following resources in your 
 
 1. an S3 bucket
 2. an ECR repository
-3. an IAM role with the minimum necessary permissions to access the S3 bucket and the ECR repository to build and push container images, store artifacts and run pipelines with SageMaker or SkyPilot. 
-4. depending on the target ZenML Server capabilities, different authentication methods are used:
+3. a CloudBuild project
+4. an IAM role with the minimum necessary permissions to access the S3 bucket, the ECR repository and the CloudBuild project to build and push container images, store artifacts and run pipelines with SageMaker or SkyPilot.
+5. an IAM role is created to be used as the service role for the CloudBuild project. It has the minimum necessary permissions to access the S3 bucket to read build contexts and to access the ECR repository to push container images.
+6. if the `orchestrator` input variable is set to `sagemaker`, another IAM role is created to be used as the service role for the SageMaker Orchestrator. It has the minimum necessary permissions to access the S3 bucket to read and write pipeline artifacts and full SageMaker permissions to create and run SageMaker jobs.
+7. depending on the target ZenML Server capabilities, different authentication methods are used:
   * for a self-hosted ZenML server, an IAM user is created and a secret key is configured for it and shared with the ZenML server
   * for a ZenML Pro account, direct inter-account AWS role assumption is used to authenticate implicitly with the ZenML server, so that no sensitive credentials are shared with the ZenML server. There's only one exception: when the SkyPilot orchestrator is used, this authentication method is not supported, so the IAM user and secret key are used instead.
 
@@ -65,7 +68,8 @@ The ZenML stack configuration is the following:
   * a local Orchestrator, if `orchestrator` is set to `local`. This can be used in combination with the SageMaker Step Operator to selectively run some steps locally and some on SageMaker.
   * if `orchestrator` is set to `sagemaker` (default): a SageMaker Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
   * if `orchestrator` is set to `skypilot`: a SkyPilot Orchestrator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
-4. a SageMaker Step Operator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
+4. an AWS Image Builder linked to the CloudBuild project via an AWS Service Connector configured with IAM role credentials
+5. a SageMaker Step Operator linked to the AWS account via an AWS Service Connector configured with IAM role credentials
 
 To use the ZenML stack, you will need to install the required integrations:
 
