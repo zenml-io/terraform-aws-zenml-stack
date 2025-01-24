@@ -86,6 +86,14 @@ data "aws_iam_policy_document" "assume_role_policy" {
       type = "AWS"
       identifiers = [local.use_implicit_auth ? local.zenml_pro_tenant_iam_role : aws_iam_user.iam_user[0].arn]
     }
+
+    dynamic "principals" {
+      for_each = var.orchestrator == "sagemaker" ? [1] : []
+      content {
+        type = "Service"
+        identifiers = ["scheduler.amazonaws.com"]
+      }
+    }
   }
 }
 
@@ -209,6 +217,12 @@ resource "aws_iam_role_policy" "sagemaker_pipelines_policy" {
   })
 }
 
+# Permissions needed for the SageMaker orchestrator to schedule pipelines
+resource "aws_iam_role_policy_attachment" "eventbridge_scheduler_policy" {
+  count = var.orchestrator == "sagemaker" ? 1 : 0
+  role       = aws_iam_role.stack_access_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEventBridgeSchedulerFullAccess"
+}
 
 resource "aws_iam_role_policy" "skypilot_policy" {
   count = var.orchestrator == "skypilot" ? 1 : 0
@@ -621,6 +635,7 @@ resource "zenml_service_connector" "aws" {
     aws_iam_role_policy.ecr_policy,
     aws_iam_role_policy.sagemaker_training_jobs_policy,
     aws_iam_role_policy.sagemaker_pipelines_policy,
+    aws_iam_role_policy_attachment.eventbridge_scheduler_policy,
     aws_iam_role_policy.skypilot_policy,
     aws_iam_role_policy.sagemaker_runtime_policy,
     aws_iam_role_policy.codebuild_runtime_policy,
