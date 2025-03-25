@@ -22,7 +22,6 @@ module "zenml_stack" {
     source  = "../"
 
     orchestrator = "sagemaker" # or "skypilot" or "local"
-    zenml_pro_aws_account = "339712793861"
     zenml_stack_name = "aws-stack"
 }
 
