@@ -38,6 +38,11 @@ output "image_builder" {
   value = data.zenml_stack_component.image_builder
 }
 
+output "deployer" {
+  description = "The deployer that was registered with the ZenML server"
+  value = local.use_app_runner ? data.zenml_stack_component.deployer[0] : null
+}
+
 output "zenml_stack" {
   description = "The ZenML stack that was registered with the ZenML server"
   value = data.zenml_stack.stack
