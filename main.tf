@@ -361,6 +361,7 @@ resource "aws_iam_role_policy" "app_runner_deployer_policy" {
             "secretsmanager:GetSecretValue",
             "secretsmanager:DescribeSecret",
             "secretsmanager:PutSecretValue",
+            "secretsmanager:UpdateSecret",
             "secretsmanager:TagResource",
             "secretsmanager:DeleteSecret"
         ],
