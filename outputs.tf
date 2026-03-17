@@ -5,7 +5,7 @@ output "s3_service_connector" {
 
 output "ecr_service_connector" {
   description = "The ECR service connector that was registered with the ZenML server"
-  value       = data.zenml_service_connector.ecr
+  value       = var.enable_container_registry ? data.zenml_service_connector.ecr[0] : null
 }
 
 output "aws_service_connector" {
@@ -20,7 +20,7 @@ output "artifact_store" {
 
 output "container_registry" {
   description = "The container registry that was registered with the ZenML server"
-  value       = data.zenml_stack_component.container_registry
+  value       = var.enable_container_registry ? data.zenml_stack_component.container_registry[0] : null
 }
 
 output "orchestrator" {
@@ -30,17 +30,17 @@ output "orchestrator" {
 
 output "step_operator" {
   description = "The step operator that was registered with the ZenML server"
-  value       = data.zenml_stack_component.step_operator
+  value       = var.enable_step_operator ? data.zenml_stack_component.step_operator[0] : null
 }
 
 output "image_builder" {
   description = "The image builder that was registered with the ZenML server"
-  value       = data.zenml_stack_component.image_builder
+  value       = var.enable_image_builder ? data.zenml_stack_component.image_builder[0] : null
 }
 
 output "deployer" {
   description = "The deployer that was registered with the ZenML server"
-  value       = local.use_app_runner ? data.zenml_stack_component.deployer[0] : null
+  value       = local.use_app_runner && var.enable_deployer ? data.zenml_stack_component.deployer[0] : null
 }
 
 output "zenml_stack" {

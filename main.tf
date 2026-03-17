@@ -49,6 +49,7 @@ resource "aws_s3_bucket" "artifact_store" {
 }
 
 resource "aws_ecr_repository" "container_registry" {
+  count        = var.enable_container_registry ? 1 : 0
   name         = "zenml-${random_id.resource_name_suffix.hex}"
   force_delete = var.ecr_force_delete
 }
@@ -100,7 +101,7 @@ data "aws_iam_policy_document" "assume_role_policy" {
     }
 
     dynamic "principals" {
-      for_each = local.use_app_runner ? [1] : []
+      for_each = local.use_app_runner && var.enable_deployer ? [1] : []
       content {
         type        = "Service"
         identifiers = ["build.apprunner.amazonaws.com"]
@@ -140,8 +141,9 @@ resource "aws_iam_role_policy" "s3_policy" {
 }
 
 resource "aws_iam_role_policy" "ecr_policy" {
-  name = "ECRPolicy"
-  role = aws_iam_role.stack_access_role.id
+  count = var.enable_container_registry ? 1 : 0
+  name  = "ECRPolicy"
+  role  = aws_iam_role.stack_access_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -159,7 +161,7 @@ resource "aws_iam_role_policy" "ecr_policy" {
           "ecr:CompleteLayerUpload",
           "ecr:PutImage"
         ]
-        Resource = aws_ecr_repository.container_registry.arn
+        Resource = aws_ecr_repository.container_registry[0].arn
       },
       {
         Effect   = "Allow"
@@ -180,8 +182,9 @@ resource "aws_iam_role_policy" "ecr_policy" {
 
 # Client permissions needed for the SageMaker step operator
 resource "aws_iam_role_policy" "sagemaker_training_jobs_policy" {
-  name = "SageMakerTrainingJobsPolicy"
-  role = aws_iam_role.stack_access_role.id
+  count = var.enable_step_operator ? 1 : 0
+  name  = "SageMakerTrainingJobsPolicy"
+  role  = aws_iam_role.stack_access_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -199,7 +202,7 @@ resource "aws_iam_role_policy" "sagemaker_training_jobs_policy" {
       {
         Effect   = "Allow"
         Action   = "iam:PassRole"
-        Resource = aws_iam_role.sagemaker_runtime_role.arn
+        Resource = aws_iam_role.sagemaker_runtime_role[0].arn
       }
     ]
   })
@@ -342,14 +345,14 @@ resource "aws_iam_role_policy" "skypilot_policy" {
 
 # Permissions needed for the App Runner deployer to deploy pipelines
 resource "aws_iam_role_policy_attachment" "app_runner_deployer_policy" {
-  count      = local.use_app_runner ? 1 : 0
+  count      = local.use_app_runner && var.enable_deployer ? 1 : 0
   role       = aws_iam_role.stack_access_role.name
   policy_arn = "arn:aws:iam::aws:policy/AWSAppRunnerFullAccess"
 }
 
 # Client permissions needed for the App Runner deployer
 resource "aws_iam_role_policy" "app_runner_deployer_policy" {
-  count = local.use_app_runner ? 1 : 0
+  count = local.use_app_runner && var.enable_deployer ? 1 : 0
   name  = "AppRunnerDeployerPolicy"
   role  = aws_iam_role.stack_access_role.id
 
@@ -383,8 +386,14 @@ resource "aws_iam_role_policy" "app_runner_deployer_policy" {
   })
 }
 
+locals {
+  # SageMaker runtime role is needed for step operator or SageMaker orchestrator
+  use_sagemaker_runtime = var.enable_step_operator || var.orchestrator == "sagemaker"
+}
+
 resource "aws_iam_role" "sagemaker_runtime_role" {
-  name = "zenml-${random_id.resource_name_suffix.hex}-sagemaker"
+  count = local.use_sagemaker_runtime ? 1 : 0
+  name  = "zenml-${random_id.resource_name_suffix.hex}-sagemaker"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -405,8 +414,9 @@ resource "aws_iam_role" "sagemaker_runtime_role" {
 
 # SageMaker runtime permissions
 resource "aws_iam_role_policy" "sagemaker_runtime_policy" {
-  name = "SageMakerRuntimePolicy"
-  role = aws_iam_role.sagemaker_runtime_role.id
+  count = local.use_sagemaker_runtime ? 1 : 0
+  name  = "SageMakerRuntimePolicy"
+  role  = aws_iam_role.sagemaker_runtime_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -430,8 +440,8 @@ resource "aws_iam_role_policy" "sagemaker_runtime_policy" {
 
 
 resource "aws_iam_role" "codebuild_runtime_role" {
+  count = local.use_codebuild && var.enable_image_builder ? 1 : 0
   name  = "zenml-${random_id.resource_name_suffix.hex}-codebuild"
-  count = local.use_codebuild ? 1 : 0
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -449,61 +459,65 @@ resource "aws_iam_role" "codebuild_runtime_role" {
 # CodeBuild runtime permissions
 resource "aws_iam_role_policy" "codebuild_runtime_policy" {
   name  = "CodeBuildRuntimePolicy"
-  count = local.use_codebuild ? 1 : 0
+  count = local.use_codebuild && var.enable_image_builder ? 1 : 0
   role  = aws_iam_role.codebuild_runtime_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:GetObjectVersion"
-        ]
-        Resource = "${aws_s3_bucket.artifact_store.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:BatchGetImage",
-          "ecr:DescribeImages",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:InitiateLayerUpload",
-          "ecr:UploadLayerPart",
-          "ecr:CompleteLayerUpload",
-          "ecr:PutImage"
-        ]
-        Resource = aws_ecr_repository.container_registry.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = [
-          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/zenml-codebuild-${random_id.resource_name_suffix.hex}",
-          "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/zenml-codebuild-${random_id.resource_name_suffix.hex}:*"
-        ]
-      }
-    ]
+    Statement = concat(
+      [
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:GetObjectVersion"
+          ]
+          Resource = "${aws_s3_bucket.artifact_store.arn}/*"
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "ecr:GetAuthorizationToken"
+          ]
+          Resource = "*"
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ]
+          Resource = [
+            "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/zenml-codebuild-${random_id.resource_name_suffix.hex}",
+            "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/zenml-codebuild-${random_id.resource_name_suffix.hex}:*"
+          ]
+        }
+      ],
+      var.enable_container_registry ? [
+        {
+          Effect = "Allow"
+          Action = [
+            "ecr:BatchGetImage",
+            "ecr:DescribeImages",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:InitiateLayerUpload",
+            "ecr:UploadLayerPart",
+            "ecr:CompleteLayerUpload",
+            "ecr:PutImage"
+          ]
+          Resource = aws_ecr_repository.container_registry[0].arn
+        }
+      ] : []
+    )
   })
 }
 
 
 resource "aws_iam_role" "app_runner_instance_role" {
+  count = local.use_app_runner && var.enable_deployer ? 1 : 0
   name  = "zenml-${random_id.resource_name_suffix.hex}-app-runner"
-  count = local.use_app_runner ? 1 : 0
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -520,7 +534,7 @@ resource "aws_iam_role" "app_runner_instance_role" {
 
 # App Runner instance runtime permissions
 resource "aws_iam_role_policy" "app_runner_instance_policy" {
-  count = local.use_app_runner ? 1 : 0
+  count = local.use_app_runner && var.enable_deployer ? 1 : 0
   name  = "AppRunnerInstancePolicy"
   role  = aws_iam_role.app_runner_instance_role[0].id
 
@@ -538,8 +552,8 @@ resource "aws_iam_role_policy" "app_runner_instance_policy" {
 
 
 resource "aws_codebuild_project" "image_builder" {
+  count         = local.use_codebuild && var.enable_image_builder ? 1 : 0
   name          = "zenml-${random_id.resource_name_suffix.hex}"
-  count         = local.use_codebuild ? 1 : 0
   build_timeout = 20
   service_role  = aws_iam_role.codebuild_runtime_role[0].arn
 
@@ -568,8 +582,8 @@ resource "aws_codebuild_project" "image_builder" {
 }
 
 resource "aws_iam_role_policy" "codebuild_policy" {
+  count = local.use_codebuild && var.enable_image_builder ? 1 : 0
   name  = "CodeBuildPolicy"
-  count = local.use_codebuild ? 1 : 0
   role  = aws_iam_role.stack_access_role.id
 
   policy = jsonencode({
@@ -581,7 +595,7 @@ resource "aws_iam_role_policy" "codebuild_policy" {
           "codebuild:StartBuild",
           "codebuild:BatchGetBuilds",
         ]
-        Resource = "${aws_codebuild_project.image_builder[0].arn}"
+        Resource = aws_codebuild_project.image_builder[0].arn
       }
     ]
   })
@@ -628,14 +642,19 @@ resource "zenml_service_connector" "s3" {
   ]
 }
 
+locals {
+  artifact_store_default_config = {
+    path = "s3://${aws_s3_bucket.artifact_store.bucket}"
+  }
+  artifact_store_config = merge(local.artifact_store_default_config, var.artifact_store_config)
+}
+
 resource "zenml_stack_component" "artifact_store" {
   name   = var.zenml_stack_name == "" ? "terraform-s3-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-s3"
   type   = "artifact_store"
   flavor = "s3"
 
-  configuration = {
-    path = "s3://${aws_s3_bucket.artifact_store.bucket}"
-  }
+  configuration = local.artifact_store_config
 
   connector_id = zenml_service_connector.s3.id
 
@@ -648,11 +667,12 @@ resource "zenml_stack_component" "artifact_store" {
 # Container Registry Component
 
 resource "zenml_service_connector" "ecr" {
+  count         = var.enable_container_registry ? 1 : 0
   name          = var.zenml_stack_name == "" ? "terraform-ecr-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-ecr"
   type          = "aws"
   auth_method   = local.use_implicit_auth ? "implicit" : "iam-role"
   resource_type = "docker-registry"
-  resource_id   = aws_ecr_repository.container_registry.repository_url
+  resource_id   = aws_ecr_repository.container_registry[0].repository_url
 
   configuration = local.service_connector_config[local.use_implicit_auth ? "implicit" : "iam_role"]
 
@@ -669,17 +689,23 @@ resource "zenml_service_connector" "ecr" {
   ]
 }
 
+locals {
+  container_registry_default_config = {
+    uri                = var.enable_container_registry ? regex("^([^/]+)/?", aws_ecr_repository.container_registry[0].repository_url)[0] : ""
+    default_repository = var.enable_container_registry ? aws_ecr_repository.container_registry[0].name : ""
+  }
+  container_registry_config = merge(local.container_registry_default_config, var.container_registry_config)
+}
+
 resource "zenml_stack_component" "container_registry" {
+  count  = var.enable_container_registry ? 1 : 0
   name   = var.zenml_stack_name == "" ? "terraform-ecr-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-ecr"
   type   = "container_registry"
   flavor = "aws"
 
-  configuration = {
-    uri                = regex("^([^/]+)/?", aws_ecr_repository.container_registry.repository_url)[0]
-    default_repository = "${aws_ecr_repository.container_registry.name}"
-  }
+  configuration = local.container_registry_config
 
-  connector_id = zenml_service_connector.ecr.id
+  connector_id = zenml_service_connector.ecr[0].id
 
   labels = {
     "zenml:provider"   = "aws"
@@ -692,18 +718,19 @@ resource "zenml_stack_component" "container_registry" {
 locals {
   # The orchestrator configuration is different depending on the orchestrator
   # chosen by the user. We use the `orchestrator` variable to determine which
-  # configuration to use and construct a local variable `orchestrator_config` to
-  # hold the configuration.
-  orchestrator_config = {
+  # configuration to use and construct a local variable `orchestrator_default_config` to
+  # hold the default configuration.
+  orchestrator_default_config = {
     local = {}
     sagemaker = {
-      execution_role     = "${aws_iam_role.sagemaker_runtime_role.arn}"
+      execution_role     = local.use_sagemaker_runtime ? aws_iam_role.sagemaker_runtime_role[0].arn : ""
       output_data_s3_uri = "s3://${aws_s3_bucket.artifact_store.bucket}/sagemaker"
     }
     skypilot = {
-      region = "${data.aws_region.current.name}"
+      region = data.aws_region.current.name
     }
   }
+  orchestrator_config = merge(local.orchestrator_default_config[var.orchestrator], var.orchestrator_config)
 }
 
 resource "zenml_service_connector" "aws" {
@@ -743,7 +770,7 @@ resource "zenml_stack_component" "orchestrator" {
   type   = "orchestrator"
   flavor = var.orchestrator == "skypilot" ? "vm_aws" : var.orchestrator
 
-  configuration = local.orchestrator_config[var.orchestrator]
+  configuration = local.orchestrator_config
 
   connector_id = var.orchestrator == "local" ? "" : zenml_service_connector.aws.id
 
@@ -754,16 +781,22 @@ resource "zenml_stack_component" "orchestrator" {
 }
 
 
+locals {
+  step_operator_default_config = {
+    role   = var.enable_step_operator ? aws_iam_role.sagemaker_runtime_role[0].arn : ""
+    bucket = aws_s3_bucket.artifact_store.bucket
+  }
+  step_operator_config = merge(local.step_operator_default_config, var.step_operator_config)
+}
+
 # Step Operator
 resource "zenml_stack_component" "step_operator" {
+  count  = var.enable_step_operator ? 1 : 0
   name   = var.zenml_stack_name == "" ? "terraform-sagemaker-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-sagemaker"
   type   = "step_operator"
   flavor = "sagemaker"
 
-  configuration = {
-    role   = "${aws_iam_role.sagemaker_runtime_role.arn}",
-    bucket = "${aws_s3_bucket.artifact_store.bucket}"
-  }
+  configuration = local.step_operator_config
 
   connector_id = zenml_service_connector.aws.id
 
@@ -777,22 +810,24 @@ resource "zenml_stack_component" "step_operator" {
 
 locals {
   # The image builder configuration is different depending on the zenml version.
-  image_builder_type = local.use_codebuild ? "codebuild" : "local"
-  image_builder_config = {
+  image_builder_type = local.use_codebuild && var.enable_image_builder ? "codebuild" : "local"
+  image_builder_default_config = {
     local = {}
     codebuild = {
-      code_build_project = local.use_codebuild ? aws_codebuild_project.image_builder[0].name : ""
+      code_build_project = local.use_codebuild && var.enable_image_builder ? aws_codebuild_project.image_builder[0].name : ""
     }
   }
+  image_builder_config = merge(local.image_builder_default_config[local.image_builder_type], var.image_builder_config)
 }
 
 
 resource "zenml_stack_component" "image_builder" {
+  count  = var.enable_image_builder ? 1 : 0
   name   = var.zenml_stack_name == "" ? "terraform-${local.image_builder_type}-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-${local.image_builder_type}"
   type   = "image_builder"
   flavor = local.use_codebuild ? "aws" : "local"
 
-  configuration = local.image_builder_config[local.image_builder_type]
+  configuration = local.image_builder_config
 
   connector_id = local.use_codebuild ? zenml_service_connector.aws.id : null
 
@@ -806,16 +841,17 @@ resource "zenml_stack_component" "image_builder" {
 # Deployer
 
 locals {
-  deployer_config = {
+  deployer_default_config = {
     access_role_arn     = aws_iam_role.stack_access_role.arn
-    instance_role_arn   = local.use_app_runner ? aws_iam_role.app_runner_instance_role[0].arn : ""
+    instance_role_arn   = local.use_app_runner && var.enable_deployer ? aws_iam_role.app_runner_instance_role[0].arn : ""
     service_name_prefix = "zenml-${random_id.resource_name_suffix.hex}"
     secret_name_prefix  = "zenml-${random_id.resource_name_suffix.hex}"
   }
+  deployer_config = merge(local.deployer_default_config, var.deployer_config)
 }
 
 resource "zenml_stack_component" "deployer" {
-  count  = local.use_app_runner ? 1 : 0
+  count  = local.use_app_runner && var.enable_deployer ? 1 : 0
   name   = var.zenml_stack_name == "" ? "terraform-app-runner-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-app-runner"
   type   = "deployer"
   flavor = "aws"
@@ -836,11 +872,11 @@ resource "zenml_stack" "stack" {
 
   components = {
     artifact_store     = zenml_stack_component.artifact_store.id
-    container_registry = zenml_stack_component.container_registry.id
+    container_registry = var.enable_container_registry ? zenml_stack_component.container_registry[0].id : null
     orchestrator       = zenml_stack_component.orchestrator.id
-    step_operator      = zenml_stack_component.step_operator.id
-    image_builder      = zenml_stack_component.image_builder.id
-    deployer           = local.use_app_runner ? zenml_stack_component.deployer[0].id : null
+    step_operator      = var.enable_step_operator ? zenml_stack_component.step_operator[0].id : null
+    image_builder      = var.enable_image_builder ? zenml_stack_component.image_builder[0].id : null
+    deployer           = local.use_app_runner && var.enable_deployer ? zenml_stack_component.deployer[0].id : null
   }
 
   labels = {
@@ -854,7 +890,8 @@ data "zenml_service_connector" "s3" {
 }
 
 data "zenml_service_connector" "ecr" {
-  id = zenml_service_connector.ecr.id
+  count = var.enable_container_registry ? 1 : 0
+  id    = zenml_service_connector.ecr[0].id
 }
 
 data "zenml_service_connector" "aws" {
@@ -866,7 +903,8 @@ data "zenml_stack_component" "artifact_store" {
 }
 
 data "zenml_stack_component" "container_registry" {
-  id = zenml_stack_component.container_registry.id
+  count = var.enable_container_registry ? 1 : 0
+  id    = zenml_stack_component.container_registry[0].id
 }
 
 data "zenml_stack_component" "orchestrator" {
@@ -874,15 +912,17 @@ data "zenml_stack_component" "orchestrator" {
 }
 
 data "zenml_stack_component" "step_operator" {
-  id = zenml_stack_component.step_operator.id
+  count = var.enable_step_operator ? 1 : 0
+  id    = zenml_stack_component.step_operator[0].id
 }
 
 data "zenml_stack_component" "image_builder" {
-  id = zenml_stack_component.image_builder.id
+  count = var.enable_image_builder ? 1 : 0
+  id    = zenml_stack_component.image_builder[0].id
 }
 
 data "zenml_stack_component" "deployer" {
-  count = local.use_app_runner ? 1 : 0
+  count = local.use_app_runner && var.enable_deployer ? 1 : 0
   id    = zenml_stack_component.deployer[0].id
 }
 
