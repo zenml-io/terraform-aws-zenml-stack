@@ -44,11 +44,13 @@ resource "random_id" "resource_name_suffix" {
 }
 
 resource "aws_s3_bucket" "artifact_store" {
-  bucket = "zenml-${data.aws_caller_identity.current.account_id}-${random_id.resource_name_suffix.hex}"
+  bucket        = "zenml-${data.aws_caller_identity.current.account_id}-${random_id.resource_name_suffix.hex}"
+  force_destroy = var.s3_force_destroy
 }
 
 resource "aws_ecr_repository" "container_registry" {
-  name = "zenml-${random_id.resource_name_suffix.hex}"
+  name         = "zenml-${random_id.resource_name_suffix.hex}"
+  force_delete = var.ecr_force_delete
 }
 
 
