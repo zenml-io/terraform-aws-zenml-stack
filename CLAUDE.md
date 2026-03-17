@@ -66,3 +66,14 @@ After creating AWS resources, the module registers them with ZenML in this order
 3. A **zenml_stack** resource that ties all components together
 
 Each ZenML resource is re-read via a `data` source after creation so the outputs reflect server-side state.
+
+## Releasing
+
+The Terraform Registry is driven by **Git tags**, not by branch state. Merging a PR to `main` does NOT update the Registry. After merging changes that should be published:
+
+```bash
+git tag v<next-version>   # e.g. v2.0.11
+git push origin v<next-version>
+```
+
+The Registry webhook picks up new semver tags automatically (usually within a few minutes). Always tag after merging — don't forget this step.
