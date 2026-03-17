@@ -114,11 +114,16 @@ provider "zenml" {
 }
 
 module "zenml_stack" {
-  source  = "zenml-io/zenml-stack/aws"
+  source           = "zenml-io/zenml-stack/aws"
 
-  orchestrator = "sagemaker" # or "skypilot" or "local"
+  orchestrator     = "sagemaker" # or "skypilot" or "local"
   zenml_stack_name = "my-zenml-stack"
+  s3_force_destroy = false
+  ecr_force_delete = false
 }
+
+# ^^^Set `s3_force_destroy` and `ecr_force_delete` to true to allow deleting non-empty S3 bucket and ECR repository during terraform destroy
+# If set to false (default), destroying the stack will fail if the S3 bucket or ECR repository is not empty
 
 output "zenml_stack_id" {
   value = module.zenml_stack.zenml_stack.id
