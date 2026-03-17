@@ -44,11 +44,13 @@ resource "random_id" "resource_name_suffix" {
 }
 
 resource "aws_s3_bucket" "artifact_store" {
-  bucket = "zenml-${data.aws_caller_identity.current.account_id}-${random_id.resource_name_suffix.hex}"
+  bucket        = "zenml-${data.aws_caller_identity.current.account_id}-${random_id.resource_name_suffix.hex}"
+  force_destroy = var.s3_force_destroy
 }
 
 resource "aws_ecr_repository" "container_registry" {
-  name = "zenml-${random_id.resource_name_suffix.hex}"
+  name         = "zenml-${random_id.resource_name_suffix.hex}"
+  force_delete = var.ecr_force_delete
 }
 
 
@@ -348,8 +350,8 @@ resource "aws_iam_role_policy_attachment" "app_runner_deployer_policy" {
 # Client permissions needed for the App Runner deployer
 resource "aws_iam_role_policy" "app_runner_deployer_policy" {
   count = local.use_app_runner ? 1 : 0
-  name = "AppRunnerDeployerPolicy"
-  role = aws_iam_role.stack_access_role.id
+  name  = "AppRunnerDeployerPolicy"
+  role  = aws_iam_role.stack_access_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -357,13 +359,13 @@ resource "aws_iam_role_policy" "app_runner_deployer_policy" {
       {
         Effect = "Allow"
         Action = [
-            "secretsmanager:CreateSecret",
-            "secretsmanager:GetSecretValue",
-            "secretsmanager:DescribeSecret",
-            "secretsmanager:PutSecretValue",
-            "secretsmanager:UpdateSecret",
-            "secretsmanager:TagResource",
-            "secretsmanager:DeleteSecret"
+          "secretsmanager:CreateSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecret",
+          "secretsmanager:TagResource",
+          "secretsmanager:DeleteSecret"
         ],
         Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:zenml-${random_id.resource_name_suffix.hex}*"
       },
@@ -376,7 +378,7 @@ resource "aws_iam_role_policy" "app_runner_deployer_policy" {
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = aws_iam_role.stack_access_role.arn
-      }      
+      }
     ]
   })
 }
@@ -500,7 +502,7 @@ resource "aws_iam_role_policy" "codebuild_runtime_policy" {
 
 
 resource "aws_iam_role" "app_runner_instance_role" {
-  name = "zenml-${random_id.resource_name_suffix.hex}-app-runner"
+  name  = "zenml-${random_id.resource_name_suffix.hex}-app-runner"
   count = local.use_app_runner ? 1 : 0
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -519,15 +521,15 @@ resource "aws_iam_role" "app_runner_instance_role" {
 # App Runner instance runtime permissions
 resource "aws_iam_role_policy" "app_runner_instance_policy" {
   count = local.use_app_runner ? 1 : 0
-  name = "AppRunnerInstancePolicy"
-  role = aws_iam_role.app_runner_instance_role[0].id
+  name  = "AppRunnerInstancePolicy"
+  role  = aws_iam_role.app_runner_instance_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = "secretsmanager:GetSecretValue"
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
         Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:zenml-${random_id.resource_name_suffix.hex}*"
       }
     ]
@@ -805,15 +807,15 @@ resource "zenml_stack_component" "image_builder" {
 
 locals {
   deployer_config = {
-    access_role_arn = aws_iam_role.stack_access_role.arn
-    instance_role_arn = local.use_app_runner ? aws_iam_role.app_runner_instance_role[0].arn : ""
+    access_role_arn     = aws_iam_role.stack_access_role.arn
+    instance_role_arn   = local.use_app_runner ? aws_iam_role.app_runner_instance_role[0].arn : ""
     service_name_prefix = "zenml-${random_id.resource_name_suffix.hex}"
-    secret_name_prefix = "zenml-${random_id.resource_name_suffix.hex}"
+    secret_name_prefix  = "zenml-${random_id.resource_name_suffix.hex}"
   }
 }
 
 resource "zenml_stack_component" "deployer" {
-  count = local.use_app_runner ? 1 : 0
+  count  = local.use_app_runner ? 1 : 0
   name   = var.zenml_stack_name == "" ? "terraform-app-runner-${random_id.resource_name_suffix.hex}" : "${var.zenml_stack_name}-app-runner"
   type   = "deployer"
   flavor = "aws"
@@ -881,7 +883,7 @@ data "zenml_stack_component" "image_builder" {
 
 data "zenml_stack_component" "deployer" {
   count = local.use_app_runner ? 1 : 0
-  id = zenml_stack_component.deployer[0].id
+  id    = zenml_stack_component.deployer[0].id
 }
 
 data "zenml_stack" "stack" {
