@@ -25,6 +25,20 @@ module "zenml_stack" {
   zenml_stack_name = "aws-stack"
   s3_force_destroy = true
   ecr_force_delete = true
+
+  # Enable/disable optional components (all enabled by default)
+  enable_container_registry = true
+  enable_step_operator      = true
+  enable_image_builder      = true
+  enable_deployer           = true
+
+  # Additional configuration for components (merged with defaults)
+  # artifact_store_config     = {}
+  # orchestrator_config       = {}
+  # container_registry_config = {}
+  # step_operator_config      = {}
+  # image_builder_config      = {}
+  # deployer_config           = {}
 }
 
 output "zenml_stack_id" {
@@ -65,6 +79,10 @@ output "step_operator" {
 }
 output "image_builder" {
   value     = module.zenml_stack.image_builder
+  sensitive = true
+}
+output "deployer" {
+  value     = module.zenml_stack.deployer
   sensitive = true
 }
 output "zenml_stack" {

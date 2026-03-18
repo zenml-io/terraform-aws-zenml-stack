@@ -134,6 +134,53 @@ output "zenml_stack_name" {
 }
 ```
 
+### Configuration Options
+
+You can customize which stack components are included and provide additional configuration for each component:
+
+```hcl
+module "zenml_stack" {
+  source           = "zenml-io/zenml-stack/aws"
+
+  orchestrator     = "sagemaker"
+  zenml_stack_name = "my-zenml-stack"
+
+  # Enable/disable optional components (all enabled by default)
+  enable_container_registry = true
+  enable_step_operator      = true
+  enable_image_builder      = true
+  enable_deployer           = true
+
+  # Additional configuration for components (merged with defaults)
+  artifact_store_config     = {}
+  orchestrator_config       = {}
+  container_registry_config = {}
+  step_operator_config      = {}
+  image_builder_config      = {}
+  deployer_config           = {}
+}
+```
+
+#### Input Variables
+
+| Name | Description | Type | Default |
+|------|-------------|------|---------|
+| `orchestrator` | The orchestrator to use: `sagemaker`, `skypilot`, or `local` | `string` | `"sagemaker"` |
+| `zenml_stack_name` | Custom name for the ZenML stack | `string` | `""` |
+| `zenml_stack_deployment` | Deployment type label for the stack | `string` | `"terraform"` |
+| `s3_force_destroy` | Allow deleting non-empty S3 bucket on destroy | `bool` | `false` |
+| `ecr_force_delete` | Allow deleting ECR repository with images on destroy | `bool` | `false` |
+| `enable_container_registry` | Include ECR container registry in the stack | `bool` | `true` |
+| `enable_step_operator` | Include SageMaker step operator in the stack | `bool` | `true` |
+| `enable_image_builder` | Include CodeBuild image builder in the stack | `bool` | `true` |
+| `enable_deployer` | Include App Runner deployer in the stack | `bool` | `true` |
+| `artifact_store_config` | Additional S3 artifact store configuration | `map(string)` | `{}` |
+| `orchestrator_config` | Additional orchestrator configuration | `map(string)` | `{}` |
+| `container_registry_config` | Additional ECR container registry configuration | `map(string)` | `{}` |
+| `step_operator_config` | Additional SageMaker step operator configuration | `map(string)` | `{}` |
+| `image_builder_config` | Additional CodeBuild image builder configuration | `map(string)` | `{}` |
+| `deployer_config` | Additional App Runner deployer configuration | `map(string)` | `{}` |
+
 ## 🎓 Learning Resources
 
 [ZenML Documentation](https://docs.zenml.io/)
